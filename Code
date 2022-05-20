@@ -1,0 +1,875 @@
+---
+title: "BAB IV Draft"
+author: "Arya Candra Kusuma"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  word_document: default
+always_allow_html: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message = F,
+                      warning = F,
+                      comment = "",
+                      fig.width = 10,
+                      fig.asp = 0.618)
+```
+
+# Data Investasi
+
+```{r}
+library(readxl)
+library(tidyverse)
+investasi <- read_excel(
+  path = "Data/Investasi_Proyek/Investasi_Proyek.xlsx",
+  sheet = "Investasi_JutaRp"
+)
+investasi
+
+#kita jumlahkan untuk kelompok sektor pada setiap tahunnya
+investasi <- investasi %>%
+  group_by(Sektor) %>%
+  summarise(
+    across(.fns = sum, na.rm = T)
+  )
+
+investasi
+
+investasi <- investasi %>%
+  mutate(
+    #kita ambil hanya hurufnya saja
+    Sektor = str_extract(Sektor, ".+\\.")
+  ) %>%
+  #lakukan pivot longer agar jadi kolom tahun
+  pivot_longer(
+    cols = `2014`:`2021`,
+    names_to = "Tahun",
+    values_to = "Investasi"
+  )%>%
+  #lakukan pivot wider agar sektor jadi kolom
+  pivot_wider(
+    names_from = Sektor,
+    values_from = Investasi
+  )
+
+investasi
+
+investasi_a <- investasi$A.
+investasi_c <- investasi$C.
+investasi_f <- investasi$F.
+investasi_g <- investasi$G.
+investasi_j <- investasi$J.
+investasi_o <- investasi$O.
+```
+
+
+# Time Series PDRB di Indonesia
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(ggtext)
+library(hrbrthemes)
+library(directlabels)
+library(scales)
+
+data_full_pdrb <- read_excel("data_full_PDRB.xlsx")
+data_PDRB_prov <- data_full_pdrb %>%
+  filter(
+    Sektor == "PDRB")
+
+data_PDRB_prov <- data_PDRB_prov %>%
+  mutate(
+    Tahun = as.integer(Tahun))
+
+data_PDRB_prov
+```
+
+Kita plot time seriesnya
+
+```{r, fig.height=8}
+ggthemr::ggthemr("fresh",set_theme = T)
+
+plot_pdrb_prov <- ggplot(data = data_PDRB_prov,
+       aes(x = Tahun,
+           # ubah skala PDRBnya
+           y = PDRB_ADHK_juta/1000,
+           group = Provinsi)) +
+  geom_line(size = 1.75,
+            alpha = 0.6,
+            color = "maroon")+
+  geom_point(size = 2.5,
+             alpha = 0.4,
+             color = "cyan")+
+  geom_dl(
+    data = data_PDRB_prov %>%
+      mutate(
+        Provinsi = case_when(
+          Provinsi == "DKI Jakarta" ~ "DKI Jakarta",
+          TRUE ~ str_to_title(Provinsi))) %>% 
+      filter(
+        Tahun == 2021) %>%
+      arrange(
+        desc(PDRB_ADHK_juta)) %>%
+      head(4),
+    aes(x = Tahun,
+        y = PDRB_ADHK_juta/1000-10000,
+        label = Provinsi),
+    color = "blue",
+    size = 16,
+    alpha = 0.8,
+    method = "smart.grid")+
+  labs(
+    title = "*Secara umum*, PDRB di setiap provinsi di Indonesia mengalami kenaikan",
+    subtitle = "Terdapat penurunan PDRB pada beberapa provinsi pada tahun 2020 yang disebabkan oleh pandemi *covid 19*",
+    y = "PDRB ADHK 2010  
+    (**Milyar Rupiah**)",
+    x = "**Tahun**",
+    caption = "Sumber data : Badan Pusat Statistik (**BPS**)")+
+  scale_y_continuous(breaks = seq(0, 1750000, 250000),
+                     labels = comma_format(big.mark = ".",
+                                           decimal.mark = ","))+
+  coord_cartesian(expand = T,
+                  clip = "off")+
+  theme(
+    panel.grid.minor = element_blank(),
+    axis.title.y = element_markdown(angle = 0,
+                                    color = "grey20"),
+    axis.title.x = element_markdown(color = "grey20"),
+    plot.title = element_markdown(size = 16,
+                                  color = "grey20"),
+    plot.subtitle = element_markdown(),
+    plot.caption = element_markdown())
+
+plot_pdrb_prov
+
+# ggsave(filename = "Plot_PDRB_prov.png",
+#        plot = plot_pdrb_prov,
+#        device = "png",
+#        width = unit(14, "inch"),
+#        height = unit(8, "inch"))
+```
+
+# Clustering (Kurang Peta)
+
+## Peta Cluster
+
+```{r}
+library(sf)
+
+peta <- read_sf("Data Administrasi/Administrasi_Provinsi.shp")
+peta
+
+provinsi <- peta$PROVINSI
+cluster <- data.frame(
+  provinsi
+)
+
+#writexl::write_xlsx(cluster, "cluster.xlsx")
+
+cluster <- read_excel("cluster.xlsx", sheet = "Sheet1") %>%
+  mutate(
+    cluster = as.factor(cluster)
+  )
+
+peta <- peta %>%
+  left_join(cluster,
+            by = c("PROVINSI"="provinsi"))
+
+plot_peta_cluster <- ggplot(data = peta,
+       aes(geometry = geometry,
+           fill = cluster))+
+  geom_sf(alpha = 0.85)+
+  geom_sf_label(
+    data = peta %>%
+      filter(
+        !(cluster %in% c(3, 4))) %>%
+      mutate(
+        PROVINSI = case_when(
+          PROVINSI == "DKI JAKARTA" ~ "DKI Jakarta",
+          TRUE ~ str_to_title(PROVINSI))),
+    aes(label = PROVINSI),
+    show.legend = F,
+    nudge_y = 0.8,
+    alpha = 0.7)+
+  geom_sf_label(
+    data = peta %>%
+      filter(
+        cluster == 3) %>%
+      mutate(
+        PROVINSI = case_when(
+          PROVINSI == "DKI JAKARTA" ~ "DKI Jakarta",
+          TRUE ~ str_to_title(PROVINSI))),
+    aes(label = PROVINSI),
+    nudge_x = -2,
+    show.legend = F,
+    alpha = 0.7)+
+  labs(
+    title = "Hasil Clustering Provinsi di Indonesia berdasarkan pola PDRB Tahun 2014-2021",
+    subtitle = "Hierarchical Clustering dengan distance *dynamic time warping* dan *Complete Linkage*",
+    fill = "Cluster",
+    x = "Longitude",
+    y = "Latitude",
+    caption = "Sumber Data : Data BPS")+
+  ggsci::scale_fill_tron()+
+  coord_sf()+
+  theme(
+    plot.title = element_markdown(size = 16),
+    plot.subtitle = element_markdown(),
+    legend.position = "top")
+
+
+# ggsave(filename = "Plot_peta_cluster.png",
+#        plot = plot_peta_cluster,
+#        device = "png",
+#        width = unit(14, "inch"),
+#        height = unit(8, "inch"))
+```
+
+# Tipologi Klassen
+
+```{r}
+cluster_klassen <- read_excel("cluster_klassen.xlsx")
+
+klas_sektor <- function(df) {
+  hasil <- vector(length = length(df$diff_pertumbuhan_klassen))
+  
+  for (i in seq_along(df$diff_pdrb_klassen)){
+    if ((df$diff_pdrb_klassen[i] > 0) & (df$diff_pertumbuhan_klassen[i] > 0)) {
+      hasil[i] <- "Unggul"
+    } else if ((df$diff_pdrb_klassen[i] > 0) & (df$diff_pertumbuhan_klassen[i] < 0)){
+      hasil[i] <- "Jenuh"
+    } else if ((df$diff_pdrb_klassen[i] < 0) & (df$diff_pertumbuhan_klassen[i] > 0)){
+      hasil[i] <- "Potensial"
+    } else{
+      hasil[i] <- "Terbelakang"
+    }
+  }
+  
+  return(hasil)
+}
+
+cluster_klassen$klas_sektor <- klas_sektor(cluster_klassen)
+cluster_klassen <- cluster_klassen %>%
+  mutate(
+    klas_sektor = as.factor(klas_sektor)
+  )
+cluster_klassen
+
+cluster_klassen_list <- split(cluster_klassen, cluster_klassen$cluster)
+```
+
+
+```{r}
+library(scales)
+
+#klasifikasi sektor
+plot_klassen <- function(i){
+  cluster_klassen_list[[i]] %>%
+    mutate(
+      mean_pdrb_klassen = mean_pdrb_klassen/1000,
+      PDRB_cluster = PDRB_cluster/1000) %>%
+      # buat plot
+      ggplot(aes(x = mean_pdrb_klassen,
+               y = mean_pertumbuhan_klassen))+
+      geom_point(
+        aes(color = klas_sektor),
+        size = 3)+
+      geom_hline(
+        aes(yintercept = pertumbuhan_cluster),
+        linetype = "dashed", size = 2)+
+      geom_vline(
+        aes(xintercept = PDRB_cluster),
+        linetype = "dashed", size = 2)+
+      geom_label(
+        data = cluster_klassen_list[[i]] %>%
+          filter(
+            klas_sektor == "Unggul") %>%
+          mutate(
+            mean_pdrb_klassen = mean_pdrb_klassen/1000
+          ),
+        aes(
+          label = Sektor),
+        nudge_y = 0.5,
+        fill = "azure")+
+      labs(
+        title = str_glue("Tipologi Klasssen Cluster {i}"),
+        color = "Klasifikasi Sektor",
+        x = "PDRB **(Milyar Rupiah)**",
+        y = "Laju (%)")+
+      ggsci::scale_fill_aaas()+
+      scale_x_continuous(labels = comma_format(big.mark = ".",
+                                               decimal.mark = ","))+
+      theme(
+        legend.position = "top",
+        axis.title.x = element_markdown())
+}
+
+plot_c1_klassen <- plot_klassen(1)
+plot_c2_klassen <- plot_klassen(2)
+plot_c3_klassen <- plot_klassen(3)
+plot_c4_klassen <- plot_klassen(4)
+
+# ggsave(filename = "Plot_c1_klassen.png",
+#        plot = plot_c1_klassen,
+#        device = "png",
+#        width = unit(14, "inch"),
+#        height = unit(8, "inch"))
+# 
+# ggsave(filename = "Plot_c2_klassen.png",
+#        plot = plot_c2_klassen,
+#        device = "png",
+#        width = unit(14, "inch"),
+#        height = unit(8, "inch"))
+# 
+# ggsave(filename = "Plot_c3_klassen.png",
+#        plot = plot_c3_klassen,
+#        device = "png",
+#        width = unit(14, "inch"),
+#        height = unit(8, "inch"))
+# 
+# ggsave(filename = "Plot_c4_klassen.png",
+#        plot = plot_c4_klassen,
+#        device = "png",
+#        width = unit(14, "inch"),
+#        height = unit(8, "inch"))
+```
+
+# Plot Time Series
+
+```{r}
+#read data
+data_clust_unggul <- read_excel("data_clust_unggul.xlsx")
+
+#buat vektor
+v_cluster <- data_clust_unggul$cluster
+
+#split
+clust_unggul_split <- data_clust_unggul %>%
+  split(v_cluster)
+
+#lakukan pivoting
+clust_unggul_wide <- clust_unggul_split %>%
+  map(pivot_wider,
+      names_from = Sektor,
+      values_from = PDRB_ADHK_juta_clust)
+
+#didapatkan
+clust_unggul_wide
+
+#hilangkan kolom cluster dan tahun
+clust_unggul_wide <- clust_unggul_wide %>%
+  map(dplyr::select,
+      -cluster,
+      -Tahun)
+clust_unggul_wide
+```
+
+## Cluster 1
+
+```{r}
+ggthemr::ggthemr("fresh")
+
+#ambil tabelnya
+cluster_1 <- clust_unggul_wide[[1]]
+cluster_1
+
+#buat menjadi time series
+cluster_1 <- ts(cluster_1, start = 2014)
+cluster_1
+
+#plot time series
+plot_unggul_c1 <- ggplot(data = data.frame(
+  #ubah jadi milyar
+  PDRB = cluster_1/1000,
+  Tahun = 2014:2021) %>%
+    pivot_longer(
+      J.,
+      names_to = "Sektor",
+      values_to = "PDRB_milyar"))+
+  geom_line(
+    aes(x = Tahun,
+        y = PDRB_milyar,
+        color = Sektor),
+    size = 1.5,
+    alpha = 0.6)+
+  geom_point(
+    aes(x = Tahun,
+        y = PDRB_milyar),
+    size = 3.5,
+    color = "springgreen")+
+  labs(
+    title = "Perkembangan PDRB Sektor Unggulan Cluster 1",
+    y = "PDRB (**milyar rupiah**)")+
+  scale_y_continuous(labels = comma_format(big.mark = ".",
+                                           decimal.mark = ","))+
+  theme_bw()+
+  facet_wrap(~Sektor)+
+  theme(
+    legend.position = "none",
+    axis.title.y = element_markdown())
+plot_unggul_c1
+
+# ggsave(filename = "Plot_unggul_c1.png",
+#        plot = plot_unggul_c1,
+#        device = "png",
+#        width = unit(14, "inch"),
+#        height = unit(8, "inch"))
+```
+
+
+## Cluster 2
+
+```{r}
+#ambil tabelnya
+cluster_2 <- clust_unggul_wide[[2]]
+cluster_2
+
+#buat menjadi time series
+cluster_2 <- ts(cluster_2, start = 2014)
+cluster_2
+
+#plot time series
+plot_unggul_c2 <- ggplot(data = data.frame(
+  #ubah jadi milyar
+  PDRB = cluster_2/1000,
+  Tahun = 2014:2021) %>%
+    pivot_longer(
+      c(PDRB.F., PDRB.G.),
+      names_to = "Sektor",
+      values_to = "PDRB_milyar") %>%
+    mutate(
+      Sektor = str_extract(Sektor, "\\.\\w\\."),
+      Sektor = str_remove(Sektor, "\\.")))+
+  geom_line(
+    aes(x = Tahun,
+        y = PDRB_milyar,
+        color = Sektor),
+    size = 1.5,
+    alpha = 0.6)+
+  geom_point(
+    aes(x = Tahun,
+        y = PDRB_milyar),
+    size = 3.5,
+    color = "springgreen")+
+  labs(
+    title = "Perkembangan PDRB Sektor Unggulan Cluster 2",
+    y = "PDRB (**milyar rupiah**)")+
+  scale_y_continuous(labels = comma_format(big.mark = ".",
+                                           decimal.mark = ","))+
+  ggsci::scale_color_aaas()+
+  theme_bw()+
+  theme(
+    legend.position = "none",
+    axis.title.y = element_markdown())+
+  facet_wrap(~Sektor)
+plot_unggul_c2
+
+# ggsave(filename = "Plot_unggul_c2.png",
+#        plot = plot_unggul_c2,
+#        device = "png",
+#        width = unit(14, "inch"),
+#        height = unit(8, "inch"))
+```
+
+## Cluster 3
+
+```{r}
+#ambil tabelnya
+cluster_3 <- clust_unggul_wide[[3]]
+cluster_3
+
+#buat menjadi time series
+cluster_3 <- ts(cluster_3, start = 2014)
+cluster_3
+
+#plot time series
+plot_unggul_c3 <- ggplot(data = data.frame(
+  #ubah jadi milyar
+  PDRB = cluster_3/1000,
+  Tahun = 2014:2021) %>%
+    pivot_longer(
+      c(PDRB.A., PDRB.F., PDRB.G.),
+      names_to = "Sektor",
+      values_to = "PDRB_milyar") %>%
+    mutate(
+      Sektor = str_extract(Sektor, "\\.\\w\\."),
+      Sektor = str_remove(Sektor, "\\.")))+
+  geom_line(
+    aes(x = Tahun,
+        y = PDRB_milyar,
+        color = Sektor),
+    size = 1.5,
+    alpha = 0.6)+
+  geom_point(
+    aes(x = Tahun,
+        y = PDRB_milyar),
+    size = 3.5,
+    color = "springgreen")+
+  labs(
+    title = "Perkembangan PDRB Sektor Unggulan Cluster 3",
+    y = "PDRB (**milyar rupiah**)")+
+  scale_y_continuous(labels = comma_format(big.mark = ".",
+                                           decimal.mark = ","))+
+  ggsci::scale_color_aaas()+
+  theme_bw()+
+  theme(
+    legend.position = "none",
+    axis.title.y = element_markdown())+
+  facet_wrap(~Sektor)
+plot_unggul_c3
+
+# ggsave(filename = "Plot_unggul_c3.png",
+#        plot = plot_unggul_c3,
+#        device = "png",
+#        width = unit(14, "inch"),
+#        height = unit(8, "inch"))
+```
+
+## Cluster 4
+
+```{r}
+#ambil tabelnya
+cluster_4 <- clust_unggul_wide[[4]]
+cluster_4
+
+#buat menjadi time series
+cluster_4 <- ts(cluster_4, start = 2014)
+cluster_4
+
+#plot time series
+plot_unggul_c4 <- ggplot(data = data.frame(
+  #ubah jadi milyar
+  PDRB = cluster_4/1000,
+  Tahun = 2014:2021) %>%
+    pivot_longer(
+      c(PDRB.C., PDRB.F., PDRB.G., PDRB.O.),
+      names_to = "Sektor",
+      values_to = "PDRB_milyar") %>%
+    mutate(
+      Sektor = str_extract(Sektor, "\\.\\w\\."),
+      Sektor = str_remove(Sektor, "\\.")))+
+  geom_line(
+    aes(x = Tahun,
+        y = PDRB_milyar,
+        color = Sektor),
+    size = 1.5,
+    alpha = 0.6)+
+  geom_point(
+    aes(x = Tahun,
+        y = PDRB_milyar),
+    size = 3.5,
+    color = "springgreen")+
+  labs(
+    title = "Perkembangan PDRB Sektor Unggulan Cluster 4",
+    y = "PDRB (**milyar rupiah**)")+
+  scale_y_continuous(labels = comma_format(big.mark = ".",
+                                           decimal.mark = ","))+
+  ggsci::scale_color_aaas()+
+  theme_bw()+
+  theme(
+    legend.position = "none",
+    axis.title.y = element_markdown())+
+  facet_wrap(~Sektor)
+plot_unggul_c4
+
+# ggsave(filename = "Plot_unggul_c4.png",
+#        plot = plot_unggul_c4,
+#        device = "png",
+#        width = unit(14, "inch"),
+#        height = unit(8, "inch"))
+```
+
+# Pemodelan
+
+```{r}
+kriteria_uji <- function(model, xreg = NA) {
+  print(lmtest::coeftest(model))
+  
+  if (length(xreg) == 1){
+    print(accuracy(model))
+    plot(forecast(model))
+  }else{
+    print(accuracy(model, xreg = xreg))
+    plot(forecast(model, xreg = xreg))
+  }
+  
+  print(shapiro.test(model$residuals))
+  print(nortest::lillie.test(model$residuals))
+  print(Box.test(model$residuals))
+  checkresiduals(model)
+  print(nortsTest::arch.test(model$residuals))
+}
+```
+
+## Cluster 1
+
+### J.
+
+```{r}
+library(forecast)
+plot(diff(cluster_1))
+Acf(diff(cluster_1))
+pacf(diff(cluster_1))
+
+acf_c1 <- ggAcf(cluster_1)
+pacf_c1 <- ggPacf(cluster_1)
+
+library(patchwork)
+acf_pacf_c1 <- acf_c1+pacf_c1
+ggsave(acf_pacf_c1,
+       device = "png",
+       filename = "ACF_PACF_C1.png",
+       width = unit(10, "inches"),
+       height = unit(6, "inches"),
+       path = "Plot/ACF_PACF_C1.png")
+```
+
+```{r}
+# Tanpa XREG
+model_c1 <- arima(cluster_1/1000,
+                  order = c(1, 1, 1),
+                  method = "ML")
+model_c1
+
+kriteria_uji(model_c1)
+```
+
+
+```{r}
+# XREG
+model_c1_xreg <- Arima(cluster_1/1000,
+                  order = c(1, 1, 2),
+                  method = "ML",
+                  xreg = investasi_j)
+model_c1_xreg
+
+kriteria_uji(model_c1_xreg,xreg =  investasi_j)
+
+coba <- list(
+  a = cluster_1/1000,
+  b = cluster_2[,1]/1000
+)
+
+candidate_model_c1_xreg <- list(
+  # arg 1
+  list(y = cluster_1/1000, order = c(0, 1, 0),
+       xreg = investasi_j/1000, include.drift = F),
+    # arg 1
+  list(y = cluster_1/1000, order = c(0, 1, 0),
+       xreg = investasi_j/1000, include.drift = T),
+  # arg 2
+  list(y = cluster_1/1000, order = c(1, 1, 0),
+       xreg = investasi_j/1000, include.drift = F),
+  # arg 2
+  list(y = cluster_1/1000, order = c(1, 1, 0),
+       xreg = investasi_j/1000, include.drift = T),
+  # arg 3
+  list(y = cluster_1/1000, order = c(0, 1, 1),
+       xreg = investasi_j/1000, include.drift = F),
+  # arg 3
+  list(y = cluster_1/1000, order = c(0, 1, 1),
+       xreg = investasi_j/1000, include.drift = T),
+  # arg 4
+  list(y = cluster_1/1000, order = c(1, 1, 1),
+       xreg = investasi_j/1000, include.drift = F),
+  # arg 4
+  list(y = cluster_1/1000, order = c(1, 1, 1),
+       xreg = investasi_j/1000, include.drift = T)
+)
+
+list_fungsi <- list("Arima", "Arima", "Arima", "Arima", "Arima", "Arima", "Arima", "Arima")
+
+invoke_map(list_fungsi, candidate_model_c1_xreg) %>%
+  map(residuals) %>%
+  map(shapiro.test) %>%
+  map(broom::tidy)
+
+library(kableExtra)
+invoke_map(list_fungsi, candidate_model_c1_xreg) %>%
+  map(lmtest::coeftest) %>%
+  map_df(broom::tidy, .id = "model")
+```
+
+```{r}
+Arima(cluster_1/1000,
+      order = c(0, 1, 0),
+      include.drift = T,
+      xreg = investasi_j/1000) %>%
+  kriteria_uji(xreg = investasi_j/1000)
+
+Arima(cluster_1/1000,
+      order = c(1, 1, 0),
+      include.drift = F,
+      xreg = investasi_j/1000) %>%
+  kriteria_uji(xreg = investasi_j/1000)
+```
+
+## Cluster 2
+
+### F.
+
+```{r}
+Acf(diff(cluster_2[,1]))
+pacf(diff(cluster_2[,1]))
+
+ggAcf(cluster_2[,1])
+ggPacf(cluster_2[,1])
+acf_c2_f <- ggAcf(cluster_2[,1])
+pacf_c2_f <- ggPacf(cluster_2[,1])
+
+acf_c2_f+pacf_c2_f
+```
+
+```{r}
+candidate_model_c2_f_xreg <- list(
+  # arg 1
+  list(y = cluster_2[,1]/1000, order = c(0, 1, 0),
+       xreg = investasi_f/1000, include.drift = F),
+    # arg 1
+  list(y = cluster_2[,1]/1000, order = c(0, 1, 0),
+       xreg = investasi_f/1000, include.drift = T),
+  # arg 2
+  list(y = cluster_2[,1]/1000, order = c(1, 1, 0),
+       xreg = investasi_f/1000, include.drift = F),
+  # arg 2
+  list(y = cluster_2[,1]/1000, order = c(1, 1, 0),
+       xreg = investasi_f/1000, include.drift = T),
+  # arg 3
+  list(y = cluster_2[,1]/1000, order = c(0, 1, 1),
+       xreg = investasi_f/1000, include.drift = F),
+  # arg 3
+  list(y = cluster_2[,1]/1000, order = c(0, 1, 1),
+       xreg = investasi_f/1000, include.drift = T),
+  # arg 4
+  list(y = cluster_2[,1]/1000, order = c(1, 1, 1),
+       xreg = investasi_f/1000, include.drift = F),
+  # arg 4
+  list(y = cluster_2[,1]/1000, order = c(1, 1, 1),
+       xreg = investasi_f/1000, include.drift = T)
+)
+
+list_fungsi <- list("Arima", "Arima", "Arima", "Arima", "Arima", "Arima", "Arima", "Arima")
+
+invoke_map(list_fungsi, candidate_model_c2_f_xreg) %>%
+  map(lmtest::coeftest) %>%
+  map(broom::tidy) %>%
+  map_df(as_tibble, .id = "model")
+```
+
+```{r}
+Arima(cluster_2[,1]/1000,
+      order = c(1, 1, 0),
+      xreg = investasi_f/1000) %>%
+  kriteria_uji(xreg = investasi_f/1000)
+```
+
+
+### G.
+
+```{r}
+Acf(diff(cluster_2[,2]))
+pacf(diff(cluster_2[,2]))
+
+ggAcf(cluster_2[,2])
+ggPacf(cluster_2[,2])
+acf_c2_g <- ggAcf(cluster_2[,2])
+pacf_c2_g <- ggPacf(cluster_2[,2])
+
+acf_c2_g+pacf_c2_g
+```
+
+
+```{r}
+candidate_model_c2_g_xreg <- list(
+  # arg 1
+  list(y = cluster_2[,2]/1000, order = c(0, 1, 0),
+       xreg = investasi_g/1000, include.drift = F),
+    # arg 1
+  list(y = cluster_2[,2]/1000, order = c(0, 1, 0),
+       xreg = investasi_g/1000, include.drift = T),
+  # arg 2
+  list(y = cluster_2[,2]/1000, order = c(1, 1, 0),
+       xreg = investasi_g/1000, include.drift = F),
+  # arg 2
+  list(y = cluster_2[,2]/1000, order = c(1, 1, 0),
+       xreg = investasi_g/1000, include.drift = T),
+  # arg 3
+  list(y = cluster_2[,2]/1000, order = c(0, 1, 1),
+       xreg = investasi_g/1000, include.drift = F),
+  # arg 3
+  list(y = cluster_2[,2]/1000, order = c(0, 1, 1),
+       xreg = investasi_g/1000, include.drift = T),
+  # arg 4
+  list(y = cluster_2[,2]/1000, order = c(1, 1, 1),
+       xreg = investasi_g/1000, include.drift = F),
+  # arg 4
+  list(y = cluster_2[,2]/1000, order = c(1, 1, 1),
+       xreg = investasi_g/1000, include.drift = T)
+)
+
+list_fungsi <- list("Arima", "Arima", "Arima", "Arima", "Arima", "Arima", "Arima", "Arima")
+
+invoke_map(list_fungsi, candidate_model_c2_g_xreg) %>%
+  map(lmtest::coeftest) %>%
+  map(broom::tidy) %>%
+  map_df(as_tibble, .id = "model")
+```
+
+```{r}
+Arima(cluster_2[,2]/1000,
+      order = c(0, 1, 0),
+      xreg = investasi_g/1000) %>%
+  kriteria_uji(xreg = investasi_g/1000)
+```
+
+## Cluster 3
+
+```{r}
+cluster_3
+```
+
+
+### A
+
+```{r}
+Acf(diff(cluster_3[,1]))
+pacf(diff(cluster_3[,1]))
+
+ggAcf(cluster_3[,1])
+ggPacf(cluster_3[,1])
+acf_c3_a <- ggAcf(cluster_3[,1])
+pacf_c3_a <- ggPacf(cluster_3[,1])
+
+acf_c3_a+pacf_c3_a
+```
+
+### F.
+
+```{r}
+Acf(diff(cluster_3[,2]))
+pacf(diff(cluster_3[,2]))
+
+ggAcf(cluster_3[,2])
+ggPacf(cluster_3[,2])
+acf_c3_f <- ggAcf(cluster_3[,2])
+pacf_c3_f <- ggPacf(cluster_3[,2])
+
+acf_c3_f+pacf_c3_f
+```
+
+### G.
+
+```{r}
+Acf(diff(cluster_3[,1]))
+pacf(diff(cluster_3[,1]))
+
+ggAcf(cluster_3[,3])
+ggPacf(cluster_3[,3])
+acf_c3_g <- ggAcf(cluster_3[,3])
+pacf_c3_g <- ggPacf(cluster_3[,3])
+
+acf_c3_g+pacf_c3_g
+```
